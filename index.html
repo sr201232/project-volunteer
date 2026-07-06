@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>청소년 상담소</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #eef3f6;
+      color: #202427;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+    }
+
+    #chat-app {
+      width: min(100%, 640px);
+      border: 1px solid #cfd8dd;
+      background: #ffffff;
+      padding: 18px;
+      border-radius: 8px;
+    }
+
+    h2 {
+      margin: 0 0 12px;
+      text-align: center;
+      font-size: 22px;
+      letter-spacing: 0;
+    }
+
+    .settings {
+      display: grid;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    label {
+      font-size: 13px;
+      color: #4a545b;
+    }
+
+    input {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #b9c5cb;
+      border-radius: 6px;
+      font: inherit;
+    }
+
+    input:focus {
+      outline: 2px solid #5a9fd6;
+      outline-offset: 1px;
+    }
+
+    #chat-log {
+      height: 330px;
+      border: 1px solid #cfd8dd;
+      overflow-y: auto;
+      padding: 12px;
+      margin-bottom: 10px;
+      background: #f8fafb;
+      border-radius: 6px;
+    }
+
+    .message {
+      max-width: 86%;
+      margin: 8px 0;
+      padding: 9px 11px;
+      border-radius: 8px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .counselor {
+      background: #e7f0f4;
+      border: 1px solid #d1e1e8;
+    }
+
+    .user {
+      margin-left: auto;
+      background: #256d85;
+      color: #ffffff;
+    }
+
+    .error {
+      background: #fff1f1;
+      border: 1px solid #e0b3b3;
+      color: #9d1c1c;
+    }
+
+    .composer {
+      display: flex;
+      gap: 6px;
+    }
+
+    .composer input {
+      flex: 1;
+      min-width: 0;
+    }
+
+    button {
+      padding: 10px 18px;
+      background: #256d85;
+      color: #ffffff;
+      border: 0;
+      border-radius: 6px;
+      cursor: pointer;
+      font: inherit;
+      white-space: nowrap;
+    }
+
+    button:disabled {
+      background: #8fa4ad;
+      cursor: wait;
+    }
+
+    @media (max-width: 480px) {
+      body {
+        padding: 10px;
+      }
+
+      #chat-app {
+        padding: 14px;
+      }
+
+      .composer {
+        flex-direction: column;
+      }
+
+      button {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main id="chat-app">
+    <h2>청소년 상담소</h2>
+
+    <div class="settings">
+      <label for="api-key">Gemini API 키</label>
+      <input id="api-key" type="password" autocomplete="off" placeholder="테스트할 때만 여기에 붙여넣기">
+    </div>
+
+    <section id="chat-log" aria-live="polite"></section>
+
+    <form class="composer" id="chat-form">
+      <input type="text" id="user-input" autocomplete="off" placeholder="고민을 입력하세요...">
+      <button type="submit" id="send-button">전송</button>
+    </form>
+  </main>
+
+  <script>
+    const MODELS = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"];
+    const API_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/interactions";
+    const CRISIS_WORDS = [
+      "죽고 싶", "자살", "극단적", "자해", "살기 싫", "사라지고 싶",
+      "맞고", "폭력", "학대", "성폭력", "위협", "도와줘"
+    ];
+
+    const form = document.getElementById("chat-form");
+    const inputField = document.getElementById("user-input");
+    const keyField = document.getElementById("api-key");
+    const log = document.getElementById("chat-log");
+    const sendButton = document.getElementById("send-button");
+
+    addMessage("counselor", "안녕하세요. 여기는 편하게 마음을 적어볼 수 있는 공간이에요. 지금 가장 신경 쓰이는 일을 말해줄래요?");
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      await sendMessage();
+    });
+
+    function addMessage(type, text) {
+      const message = document.createElement("div");
+      message.className = `message ${type}`;
+      message.textContent = type === "user" ? `나: ${text}` : `상담사: ${text}`;
+      log.appendChild(message);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    function hasCrisisSignal(text) {
+      const normalized = text.replace(/\s+/g, "").toLowerCase();
+      return CRISIS_WORDS.some((word) => normalized.includes(word.replace(/\s+/g, "").toLowerCase()));
+    }
+
+    function crisisMessage() {
+      return [
+        "지금 말해준 내용은 혼자 버티기엔 너무 무거울 수 있어요.",
+        "당장 위험하거나 누군가에게 해를 입고 있다면 112 또는 119에 바로 연락해 주세요.",
+        "가능하다면 지금 가까운 어른, 보호자, 담임 선생님, 학교 상담실, 청소년상담 1388에도 도움을 요청해 주세요.",
+        "여기서는 네 이야기를 계속 들어줄 수 있지만, 지금 안전을 확보하는 게 제일 먼저예요."
+      ].join("\n");
+    }
+
+    async function sendMessage() {
+      const text = inputField.value.trim();
+      const apiKey = keyField.value.trim();
+
+      if (!text) return;
+
+      addMessage("user", text);
+      inputField.value = "";
+
+      if (hasCrisisSignal(text)) {
+        addMessage("counselor", crisisMessage());
+        return;
+      }
+
+      if (!apiKey) {
+        addMessage("error", "Gemini API 키를 먼저 입력해 주세요. 키는 이 화면에서만 임시로 사용하고 코드에는 저장하지 않습니다.");
+        return;
+      }
+
+      sendButton.disabled = true;
+      sendButton.textContent = "전송 중";
+
+      try {
+        const data = await askGemini(apiKey, text);
+        const answer = extractAnswerText(data);
+        addMessage(answer ? "counselor" : "error", answer || "응답 내용을 읽을 수 없습니다.");
+      } catch (error) {
+        addMessage("error", `통신 실패: ${error.message}`);
+      } finally {
+        sendButton.disabled = false;
+        sendButton.textContent = "전송";
+        inputField.focus();
+      }
+    }
+
+    async function askGemini(apiKey, text) {
+      let lastError;
+
+      for (const model of MODELS) {
+        const response = await fetch(API_ENDPOINT, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": apiKey
+          },
+          body: JSON.stringify({
+            model,
+            system_instruction: [
+              "너는 청소년을 돕는 따뜻하고 신중한 상담 도우미야.",
+              "진단하거나 단정하지 말고, 공감한 뒤 짧고 현실적인 다음 행동을 제안해.",
+              "자해, 폭력, 학대, 긴급 위험이 보이면 전문기관이나 긴급 도움을 권해."
+            ].join("\n"),
+            input: text
+          })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          return data;
+        }
+
+        lastError = data.error?.message || `${model} 모델 요청에 실패했습니다.`;
+
+        if (!isTemporaryModelError(lastError)) {
+          break;
+        }
+      }
+
+      throw new Error(`${lastError || "API 요청에 실패했습니다."} 시도한 모델: ${MODELS.join(", ")}`);
+    }
+
+    function isTemporaryModelError(message) {
+      const text = message.toLowerCase();
+      return text.includes("high demand") ||
+        text.includes("try again later") ||
+        text.includes("overloaded") ||
+        text.includes("unavailable") ||
+        text.includes("temporarily");
+    }
+
+    function extractAnswerText(data) {
+      const directText = data.output_text ||
+        data.outputText ||
+        data.response?.output_text ||
+        data.response?.outputText;
+
+      if (directText) return directText;
+
+      const modelOutput = findModelOutput(data) || data.output || data.response || data;
+
+      const pieces = collectTextPieces(modelOutput);
+      return [...new Set(pieces)].join("\n").trim();
+    }
+
+    function findModelOutput(value) {
+      if (!value || typeof value !== "object") return null;
+
+      if (value.type === "model_output" ||
+        value.step_type === "model_output" ||
+        value.role === "model") {
+        return value;
+      }
+
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          const found = findModelOutput(item);
+          if (found) return found;
+        }
+        return null;
+      }
+
+      for (const item of Object.values(value)) {
+        const found = findModelOutput(item);
+        if (found) return found;
+      }
+
+      return null;
+    }
+
+    function collectTextPieces(value) {
+      if (!value) return [];
+
+      if (typeof value === "string") {
+        return [];
+      }
+
+      if (Array.isArray(value)) {
+        return value.flatMap(collectTextPieces);
+      }
+
+      if (typeof value !== "object") {
+        return [];
+      }
+
+      const pieces = [];
+
+      if (typeof value.text === "string") {
+        pieces.push(value.text);
+      }
+
+      if (typeof value.output_text === "string") {
+        pieces.push(value.output_text);
+      }
+
+      if (typeof value.outputText === "string") {
+        pieces.push(value.outputText);
+      }
+
+      for (const item of Object.values(value)) {
+        pieces.push(...collectTextPieces(item));
+      }
+
+      return pieces.filter(Boolean);
+    }
+  </script>
+</body>
+</html>
